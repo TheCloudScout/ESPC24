@@ -1,0 +1,145 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "logAnalyticsName": {
+      "type": "String"
+    },
+    "pricingTierLogAnalytics": {
+      "type": "string",
+      "defaultValue": "PerGB2018",
+      "allowedValues": [
+        "CapacityReservation",
+        "PerGB2018",
+        "Free",
+        "Standalone",
+        "Standard",
+        "Premium",
+        "PerNode",
+        "LACluster"
+      ],
+      "metadata": {
+        "description": "Specifies the service tier of the workspace: CapacityReservation, Standalone, PerNode, Free, Pay-as-you-go."
+      }
+    },
+    "capacityReservationLevelLogAnalytics": {
+      "type": "int",
+      "defaultValue": 100,
+      "allowedValues": [
+        100,
+        200,
+        300,
+        400,
+        500,
+        1000,
+        2000,
+        5000
+      ],
+      "metadata": {
+        "description": "Capacity reservation level which is used together with pricingTier capacityreservation for Log Analytics."
+      }
+    },
+    "retentionInDays": {
+      "type": "int",
+      "defaultValue": 90,
+      "metadata": {
+        "description": "How many days data should be retained"
+      }
+    },
+    "tablesArray": {
+      "type": "array",
+      "metadata": {
+        "description": "Array containing all table definitions."
+      }
+    },
+    "enableWorkspaceDcr": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Option to enable the workspace-level dcr."
+      }
+    },
+    "billingTags": {
+      "type": "object",
+      "metadata": {
+        "description": "The tags that will be set on the resources. Used for billing purposes."
+      }
+    }
+  },
+  "variables": {
+    "microsoftSentinelSolutionName": "[concat('SecurityInsights', '(', parameters('logAnalyticsName'),')')]",
+    "sku": "[if(equals(toLower(parameters('pricingTierLogAnalytics')), 'capacityreservation'), json(concat('{\"name\":\"', parameters('pricingTierLogAnalytics'), '\",\"capacityReservationLevel\":', parameters('capacityReservationLevelLogAnalytics'), '}')), json(concat('{\"name\":\"', parameters('pricingTierLogAnalytics'), '\"}')))]",
+    "dcrRuleName": "[concat('dcr-', parameters('logAnalyticsName'))]",
+    "defaultDataCollectionRuleResourceId": "[if(parameters('enableWorkspaceDcr'), resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrRuleName')), null())]"
+  },
+  "resources": [
+    {
+      "type": "microsoft.operationalinsights/workspaces",
+      "apiVersion": "2021-06-01",
+      "name": "[parameters('logAnalyticsName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('billingTags')]",
+      "properties": {
+        "sku": "[variables('sku')]",
+        "retentionInDays": "[parameters('retentionInDays')]",
+        "workspaceCapping": {
+          "dailyQuotaGb": -1
+        },
+        "publicNetworkAccessForIngestion": "Enabled",
+        "publicNetworkAccessForQuery": "Enabled",
+        "defaultDataCollectionRuleResourceId": "[variables('defaultDataCollectionRuleResourceId')]"
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/tables",
+      "apiVersion": "2021-12-01-preview",
+      "name": "[concat(parameters('logAnalyticsName'), '/', parameters('tablesArray')[copyIndex()].tableName)]",
+      "dependsOn": [
+        "[resourceId('microsoft.operationalinsights/workspaces', parameters('logAnalyticsName'))]"
+      ],
+      "copy": {
+        "name": "tables",
+        "count": "[length(parameters('tablesArray'))]"
+      },
+      "properties": "[parameters('tablesArray')[copyIndex()].tableProperties]"
+    },
+    {
+      "type": "Microsoft.OperationsManagement/solutions",
+      "apiVersion": "2015-11-01-preview",
+      "name": "[variables('microsoftSentinelSolutionName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('microsoft.operationalinsights/workspaces', parameters('logAnalyticsName'))]"
+      ],
+      "plan": {
+        "name": "[variables('microsoftSentinelSolutionName')]",
+        "promotionCode": "",
+        "product": "OMSGallery/SecurityInsights",
+        "publisher": "Microsoft"
+      },
+      "properties": {
+        "workspaceResourceId": "[resourceId('microsoft.operationalinsights/workspaces', parameters('logAnalyticsName'))]",
+        "sku": {
+          "name": "Unified"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "resourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]"
+    },
+    "workspaceId": {
+      "type": "string",
+      "value": "[reference(parameters('logAnalyticsName')).customerId]"
+    }
+  }
+}

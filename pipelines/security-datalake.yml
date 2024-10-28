@@ -1,0 +1,48 @@
+name: Security Datalake - ExpertsLiveEU
+
+pr: none
+
+trigger:
+  branches:
+    include:
+    - master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  subscriptionId:     '412f40b6-0a47-4dcc-80a4-17fc5c679c0e'
+  resourceGroupName:  'rg-sentinel-01'
+  workspaceName:      'law-sentinel-01'
+
+stages:
+  - stage: MicrosoftSentinel
+    displayName: 'Microsoft Sentinel'
+    jobs:
+      - job: azureSentinelWeUJob
+        displayName: 'Deploy Microsoft Sentinel Workspace'
+        steps:
+        - task: AzureResourceManagerTemplateDeployment@3
+          displayName: 'Create or Update Resource Group'
+          inputs:
+            deploymentScope: 'Resource Group'
+            azureResourceManagerConnection: 'Visual Studio Enterprise'
+            subscriptionId: $(subscriptionId)
+            action: 'Create Or Update Resource Group'
+            resourceGroupName: $(resourceGroupName)
+            location: 'West US 3'
+            templateLocation: 'Linked artifact'
+            csmFile: 'templates/sentinelworkspace.json'
+            csmParametersFile: 'parameters/sentinelworkspace/$(workspaceName)/$(workspaceName).parameters.json'
+            deploymentMode: 'Incremental'
+
+        - task: AzurePowerShell@5
+          displayName: 'Run table-level transformations (a.k.a. Spl1tR)'
+          inputs:
+            azureSubscription: 'Visual Studio Enterprise'
+            ScriptType: 'FilePath'
+            ScriptPath: 'scripts/spl1tr.ps1'
+            ScriptArguments: '-SubscriptionId $(subscriptionId) -WorkspaceName $(workspaceName) -PathToYamlFiles "$(System.DefaultWorkingDirectory)/parameters/sentinelworkspace/$(workspaceName)/transformations/" -ResourceGroupName $(resourceGroupName)'
+            errorActionPreference: 'continue'
+            azurePowerShellVersion: 'LatestVersion'
+            pwsh: true
